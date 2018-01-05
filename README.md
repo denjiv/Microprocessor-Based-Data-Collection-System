@@ -5,4 +5,4 @@ The report presents the design a Remote data collection system that can be contr
 
 The goal of the lab is to design an environmental data collecting system, which supports bi-directional communications, based on PIC18F25K22 microcontrollers. The purposes of the lab is to practice and get familiar with microcontrollers and utilize the knowledge of SRAM. At the same time, I2C protocol and RS232 protocol are designed to support the bi-directional communication feature between those electronic components. 
 
-![alt text](https://github.com/denjiv/Microprocessor-Based-Data-Collection-System/blob/master/station.PNG?raw=true)
+![alt text](https://github.com/denjiv/Microprocessor-Based-Data-Collection-System/blob/master/station1&2.PNG?raw=true)
