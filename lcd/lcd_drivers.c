@@ -1,142 +1,166 @@
-// Toggle the enable pin
-void write_en(void) {
-  EN = 0;
-	__delay_us(1);
-	EN = 1;
-	__delay_us(1);
-	EN = 0;
-	__delay_us(1);
+#include "lcd_drivers.h"
+
+void clockToggle() {
+    LCD_CLK_SetLow();
+    __delay_us(100);
+    LCD_CLK_SetHigh();
+    __delay_us(100);
+    LCD_CLK_SetLow();
 }
 
-// Shift register clock toggle
-void sr_clk_pulse(void) {
-	SR_CLK = 0;
-	__delay_us(1);
-	SR_CLK = 1;
-	__delay_us(1);
-	SR_CLK = 0;
-	__delay_us(1);
+void enableToggle() {
+    LCD_CLK_SetLow();
+    __delay_us(100);
+    LCD_EN_SetHigh();
+    __delay_us(100);
+    LCD_EN_SetLow();
+    __delay_us(100);
 }
 
-// Storage register clock toggle
-void st_clk_pulse(void) {
-	ST_CLK = 0;
-	__delay_us(1);
-	ST_CLK = 1;
-	__delay_us(1);
-	ST_CLK = 0;
-	__delay_us(1);
+void clear_screen() {
+    sendCommand(0x00);
+    __delay_us(150); 
+    sendCommand(0x01); //clear display
+    __delay_us(17);
 }
 
-// Write to the lcd display based on pin values in val (shift reg)
-void write_lcd(unsigned char val) {
-  unsigned char i;
-  unsigned char pin_out;
-  unsigned char mask = 128;
-	__delay_ms(1);
-	for(i = 0; i < 8; i++) {
-        pin_out = val & mask;
-        if (pin_out == 0) {
-        	SER = 0;
+void temp_screen() {
+    temperature();
+    sendString(temp_buf);
+}
+
+void flow_screen() {
+    getFrequency();
+    sendString(flow_buf);
+}
+
+void sal_screen() {
+    salinity();
+    sendString(sal_buf);
+}
+
+void car_screen() {
+    carbon();
+    sendString(car_buf);
+}
+
+void sendCommand(unsigned char command) {
+    unsigned char mask = 16;
+    unsigned char pinout;
+    
+    for (int i = 0; i < 5; i++) {
+        pinout = command & mask;
+        if (pinout == 0) {
+            LCD_SER_SetLow();
         } else {
-          SER = 1;
+            LCD_SER_SetHigh();
         }
-  	mask = mask >> 1;
-  	sr_clk_pulse();
-	}
-	st_clk_pulse(); // push finalized output out of storage register
-	write_en(); // allow LCD to pick up data from stortge register
+        clockToggle();
+        mask = mask >> 1;
+    }
+    
+    clockToggle();
+    enableToggle();
 }
 
-// Initialize the display
-void init_display(void) {
-  RS = 0;
-  __delay_ms(21);
-	write_lcd(0x30);
-	__delay_ms(5);
-	write_lcd(0x30);
-	__delay_ms(1);
-	write_lcd(0x30);
-	__delay_ms(1);
-
-	write_lcd(0x38); // function set
-	write_lcd(0x08); // Display OFF
-	write_lcd(0x01); // Clear Display
-	__delay_ms(1);
-	write_lcd(0x06); // Entry Mode
-	write_lcd(0x0F); // Display ON
-	// Initialization Complete
-
-  __delay_ms(1);
-	RS = 1;
+void lcd_init() {
+    __delay_ms(16); //sleep 15 ms after power on
+    sendCommand(0x03); //function set
+    __delay_ms(5); //sleep more than 4.1 ms
+    sendCommand(0x03); //function set
+    __delay_us(150); 
+    sendCommand(0x03); //function set
+    __delay_us(150); 
+    sendCommand(0x02); //function set
+    __delay_us(150); 
+    
+    sendCommand(0x02);
+    __delay_us(150); 
+    sendCommand(0x08); //function set command:two lines
+    __delay_us(150); 
+   
+    sendCommand(0x00);
+    __delay_us(150); 
+    sendCommand(0x08);
+    __delay_us(150); 
+    
+    sendCommand(0x00);
+    __delay_us(150); 
+    sendCommand(0x01); //clear display
+    __delay_us(17);
+    
+    sendCommand(0x00);
+    __delay_us(150); 
+    sendCommand(0x06); //entry mode: increment mode off, shift operation on
+    __delay_us(150); 
+    
+    sendCommand(0x00);
+    __delay_us(150); 
+    sendCommand(0x0F); // display on: yes cursor yes blinking
+    
 }
 
-// Called when user wants to send info to device
-void device_write(const char* bufSource) {
-    unsigned char i = 0;
-    __delay_ms(1);
+void temp_convert(unsigned char sign) {
+    if (sign == 'C' & temp_buf[13] == 'F') {
+        temp = temp * (9/5) + 32;
+    } else if (sign == 'F' & temp_buf[13] == 'C') {
+        temp = (temp - 32) * (5/9);
+    }
+    sprintf(temp_buf+16, "%6f", temp);
+    sendString(temp_buf);
+}
 
-    while (bufSource[i] != '\n') {
-        RS = 0;
-        // special characters
-        // '^' is the character for LCD clear
-        if (bufSource[i] == '@') {
-            write_lcd(0x01);
-            cur_pos = 0;
-        // '^' is the character for cursor to shift to opposite row
-        } else if (bufSource[i] == '^') {
-        	// if cursor on first line, shift to bottom line
-        	if (cur_pos <= 15) {
-                write_lcd((unsigned char) cur_pos + 64 + 128);
-                cur_pos = cur_pos + 16;
-        	} else if (cur_pos <= 31) {
-                write_lcd((unsigned char) cur_pos + 48 - 64 + 128);
-                cur_pos = cur_pos - 16;
-            }
-        // '<' is the character for cursor shift left
-        } else if (bufSource[i] == '<') {
-        	// Edge case, set DD RAM to last address of second line of screen
-        	if (cur_pos == 0) {
-        		write_lcd(0xCF);
-        		cur_pos = 31;
-        	// Edge case, set DD RAM to last address of first line of screen
-        	} else if (cur_pos == 16) {
-        		write_lcd(0x8F);
-        		cur_pos = 15;
-        	} else {
-        		write_lcd(0x10);
-            cur_pos--;
-        	}
-        // '>' is the character for cursor shift right
-        } else if (bufSource[i] == '>') {
-        	// Edge case, set DD RAM to first address of second line of screen
-        	if (cur_pos == 15) {
-        		write_lcd(0xc0);
-        		cur_pos = 16;
-        	// Edge case, set return home
-        	} else if (cur_pos == 31) {
-        		write_lcd(0x02);
-        		cur_pos = 0;
-        	} else {
-        		write_lcd(0x14);
-            cur_pos++;
-        	}
-        // normal character entry
+void sendChar(unsigned char letter) {
+    LCD_SER_SetHigh();
+    clockToggle();
+    
+    unsigned char mask = 128;
+    unsigned char pinout;
+    
+    for (int i = 0; i < 4; i++) {
+        pinout = mask & letter;
+        if (pinout == 0) {
+            LCD_SER_SetLow();
         } else {
-	        RS = 1;
-	        write_lcd((unsigned char) bufSource[i]);
-	        cur_pos++;
+            LCD_SER_SetHigh();
         }
+        clockToggle();
+        mask = mask >> 1;
+    }
+    clockToggle();
+    enableToggle();
+    
+    LCD_SER_SetHigh();
+    clockToggle();
+
+    for (int i = 0; i < 4; i++) {
+        pinout = mask & letter;
+        if (pinout == 0) {
+            LCD_SER_SetLow();
+        } else {
+            LCD_SER_SetHigh();
+        }
+        clockToggle();
+        mask = mask >> 1;
+    }
+    clockToggle();
+    enableToggle();
+}
+
+void sendString(char* string) {
+    int i = 0;
+    while ((string[i] != '\n')) {
+        
+        if (i == 16) {
+            //shift cursor to next line
+            sendCommand(0xc);
+            __delay_us(150);
+            sendCommand(0x0);
+            __delay_us(150);
+        }
+        
+        sendChar(string[i]);
         i++;
-
-        // if first line is full, set curser to line 2
-        RS = 0;
-        if (cur_pos == 16) {
-            write_lcd(0xc0);
-        // if LCD is full, set cursor home
-        } else if (cur_pos == 32) {
-            write_lcd(0x02);
-            cur_pos = 0;
-        }
     }
 }
+
